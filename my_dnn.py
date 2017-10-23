@@ -100,22 +100,36 @@ class NeuralNetworkLayer(object):
         return mygrad
 
 
+def binary_xor():
+    """ Classify xor with an extra bit which needs to be ignored"""
+    # Array of input training cases
+    inputv = np.array([[0, 0, 1],
+                       [0, 1, 1],
+                       [1, 0, 1],
+                       [1, 1, 1],
+                       [0, 0, 0],
+                       [0, 1, 0],
+                       [1, 0, 0],
+                       [1, 1, 0]])
+    # Expected result vectors used to train the network
+    y = np.array([[0],
+                  [1],
+                  [1],
+                  [0],
+                  [0],
+                  [1],
+                  [1],
+                  [0]])
+    return (inputv, y)
+
 def run_network(options):
     """ DESCRIPTION """
     logging.debug("Called with {}".format(options))
 
     transfer_fun = transfer_functions[options.transferfunction]
 
-    # Array of input training cases
-    inputv = np.array([[0, 0, 1],
-                       [0, 1, 1],
-                       [1, 0, 1],
-                       [1, 1, 1]])
-    # Expected result vectors used to train the network
-    y = np.array([[0],
-                  [1],
-                  [1],
-                  [0]])
+    # Array of input training cases and their correct answers
+    inputv,y = = binary_xor()
 
     logging.info("inputv {}, inputv.T {}".format(inputv, inputv.T))
     logging.info("inputv.shape {}, inputv.T.shape {}".format(inputv.shape, inputv.T.shape))
