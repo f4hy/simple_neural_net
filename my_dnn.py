@@ -54,7 +54,7 @@ class NeuralNetworkLayer(object):
 
 
 
-        self.weights = np.random.normal(loc=0.0, scale=0.25, size=(inputSize, outputSize))
+        self.weights = np.random.normal(loc=0.0, scale=0.2, size=(inputSize, outputSize))
         # self.weights = 2.5*np.random.random(size=(inputSize, outputSize))
         self.gradFromLastInput = None
         self.lastInput = None
@@ -83,6 +83,7 @@ class NeuralNetworkLayer(object):
         logging.debug("lastInput^t Shape {} mydelta shape {}".format(self.lastInput.T.shape, mydelta.shape))
         weightChange = (self.lastInput.T).dot(mydelta)
 
+        logging.debug("old weights\n {}".format(self.weights))
 
         self.adagrad += weightChange**2
         logging.debug("adagrad {}".format(self.adagrad))
@@ -122,6 +123,30 @@ def binary_xor():
                   [0]])
     return (inputv, y)
 
+def square_classifier():
+    """ Classify xor with an extra bit which needs to be ignored"""
+    # Array of input training cases
+    inputv = np.array([[-0.5, -0.5, -0.5, -0.5], # solid
+                       [ 0.5,  0.5,  0.5,  0.5], # soild
+                       [ 0.5, -0.5,  0.5, -0.5], # vertical
+                       [-0.5,  0.5, -0.5,  0.5], # vertical
+                       [ 0.5, -0.5, -0.5,  0.5], # diagonal
+                       [-0.5,  0.5,  0.5, -0.5], # diagonal
+                       [ 0.5,  0.5, -0.5, -0.5], # horizontal
+                       [-0.5, -0.5,  0.5,  0.5]]) # horizontal
+
+    # Expected result vectors used to train the network
+    y = np.array([[1, 0, 0, 0],
+                  [1, 0, 0, 0],
+                  [0, 1, 0, 0],
+                  [0, 1, 0, 0],
+                  [0, 0, 1, 0],
+                  [0, 0, 1, 0],
+                  [0, 0, 0, 1],
+                  [0, 0, 0, 1]])
+    return (inputv, y)
+
+
 def run_network(options):
     """ DESCRIPTION """
     logging.debug("Called with {}".format(options))
@@ -129,23 +154,41 @@ def run_network(options):
     transfer_fun = transfer_functions[options.transferfunction]
 
     # Array of input training cases and their correct answers
-    inputv,y = = binary_xor()
+    inputv,truthv = square_classifier()
+    # inputv,truthv = binary_xor()
+
+    logging.info("inputv\n{}".format(inputv))
+    logging.info("truthv\n{}".format(truthv))
+    indicies = np.random.choice(len(truthv), len(truthv)-1 )
+    logging.info("indixies={}".format(indicies))
+    logging.info("inputv\n{}".format(inputv[indicies]))
+    logging.info("truthv\n{}".format(truthv[indicies]))
+    #exit()
 
     logging.info("inputv {}, inputv.T {}".format(inputv, inputv.T))
     logging.info("inputv.shape {}, inputv.T.shape {}".format(inputv.shape, inputv.T.shape))
     # logging.info("reLU({})={}".format(inputv, reLU(inputv)))
     # logging.info("sigmoid({})={}".format(inputv, sigmoid(inputv)))
 
-    n1 = NeuralNetworkLayer(3, 6, activation=transfer_fun, learningRate=1.05)
-    n2 = NeuralNetworkLayer(6, 4, activation=transfer_fun, learningRate=1.05)
-    n3 = NeuralNetworkLayer(4, 1, activation=transfer_fun, learningRate=1.05)
+
+    n1 = NeuralNetworkLayer(4, 4, activation=sigmoid, learningRate=0.8)
+    n2 = NeuralNetworkLayer(4, 8, activation=transfer_fun, learningRate=0.8)
+    n3 = NeuralNetworkLayer(8, 4, activation=transfer_fun, learningRate=0.8)
 
     outfile = open(options.outfile,'w')
     outfile.write("#gen,error")
 
-    for j in range(6000):
+    trainingSetSize=len(truthv)
 
-        o1 = n1.runForward(inputv)
+    for j in range(5000):
+        if (j % 100) == 0:
+            indicies = np.arange(trainingSetSize)
+        else:
+            indicies = np.random.choice(trainingSetSize, trainingSetSize-1 )
+        x = inputv[indicies]
+        y = truthv[indicies]
+
+        o1 = n1.runForward(x)
         o2 = n2.runForward(o1)
         o3 = n3.runForward(o2)
         error = y - o3
