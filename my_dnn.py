@@ -2,59 +2,62 @@
 import logging
 import argparse
 import numpy as np
+import cPickle
+import gzip
+import mnist_loader
+
+def sigmoid(x):
+    s = 1.0 / (1.0 + np.exp(-x))
+    grad = s*(1.0-s)
+    return (s, grad)
 
 
-def sigmoid(x, grad=False):
-    if grad:
-        output = sigmoid(x, False)
-        return output*(1.0 - output)
-    else:
-        return 1.0 / (1.0 + np.exp(-x))
-
-def tanh(x, grad=False):
-    if grad:
-        output = tanh(x, False)
-        return (1.0 - output**2)
-    else:
-        return np.tanh(x)
-
-def fahy(x, grad=False):
-    linear = 0.01
-    if grad:
-        output = fahy(x, False)
-        return (1.0 - output**2) + linear
-    else:
-        return np.tanh(x) + linear*x
+def tanh(x):
+    t = np.tanh(x)
+    grad = (1.0 - t**2)
+    return (t, grad)
 
 
+def fahy(x):
+    linear = 0.005
+    t = np.tanh(x)
+    f = t + linear*x
+    g = (1.0 - t**2) + linear
+    return (f, g)
 
-def reLU(x, grad=False):
-    if grad:
-        return np.piecewise(x, [x < 0., x >= 0.], [0., lambda x: 1.])
-    else:
-        return np.piecewise(x, [x < 0., x >= 0.], [0., lambda x: x])
+
+def reLU(x):
+    r = np.piecewise(x, [x < 0., x >= 0.], [0., lambda x: x])
+    grad = np.piecewise(x, [x < 0., x >= 0.], [0., lambda x: 1.])
+    return (r,grad)
 
 
 transfer_functions = {"fahy": fahy, "reLU": reLU, "tanh": tanh, "sigmoid": sigmoid}
+search_methods = ["normal", "adagrad"]
+
 
 class NeuralNetworkLayer(object):
     """ A single layer of a neural network"""
 
-    def __init__(self, inputSize, outputSize, activation=reLU, learningRate=1.0, outfile=None):
+    def __init__(self, inputSize, outputSize, activation=reLU, learningRate=1.0, nobias=False, outfile=None, method="normal"):
         self.inputSize = inputSize
         self.outputSize = outputSize
         self.activation = activation
         self.learningRate = learningRate
-        self.adagrad = 0.0
-
+        self.adagrad = 1.0
+        self.biasadagrad = 1.0
+        self.method = method
+        self.runCount = 1
 
         self.outfile = None
         if outfile is not None:
-            self.outfile = open(outfile,'w')
+            self.outfile = open(outfile, 'w')
 
-
-
-        self.weights = np.random.normal(loc=0.0, scale=0.2, size=(inputSize, outputSize))
+        self.weights = np.random.normal(loc=0.0, scale=0.5, size=(inputSize, outputSize))
+        print self.weights
+        self.biasFactor = 0.0 if nobias else 1.0
+        self.biasWeight = np.random.normal(loc=1.0, scale=0.01, size=(1, outputSize))*self.biasFactor
+        #self.biasWeight = 0.0
         # self.weights = 2.5*np.random.random(size=(inputSize, outputSize))
         self.gradFromLastInput = None
         self.lastInput = None
@@ -62,65 +65,101 @@ class NeuralNetworkLayer(object):
         self.lastMeanError = 0.0
 
     def runForward(self, inputs):
-        logging.debug("{}weights =\n {}".format(self.weights.shape, self.weights))
-        dot = np.dot(inputs, self.weights)
-        logging.debug("dot={}".format(dot))
-        result = self.activation(dot)
-        logging.debug("result={}".format(result))
+        # logging.debug("{}weights =\n {}".format(self.weights.shape, self.weights))
+        #logging.debug("{}biasweights =\n {}".format(self.biasWeight.shape, self.biasWeight))
+        dot = np.dot(inputs, self.weights) + self.biasWeight * self.biasFactor
+        # logging.debug("dot={}".format(dot))
+        result, self.gradFromLastInput = self.activation(dot)
+        # logging.debug("result={}".format(result))
         self.lastInput = inputs
-        self.gradFromLastInput = self.activation(result, grad=True)
-        logging.debug("grad={}".format(self.gradFromLastInput))
+        # logging.debug("grad={}".format(self.gradFromLastInput))
         return result
 
     def backProp(self, errors):
-        logging.debug("Backproping errors {}".format(errors))
+        # logging.debug("Backproping errors {}".format(errors))
         mydelta = errors * self.gradFromLastInput
-        logging.debug("mydelta={}".format(mydelta))
+        # logging.debug("mydelta={}".format(mydelta))
         mygrad = np.dot(mydelta, self.weights.T)
-        logging.debug("mygrad={}".format(mygrad))
-        logging.debug("lastInput={}".format(self.lastInput))
-        logging.debug("lastInputShape {} mydelta shape {}".format(self.lastInput.shape, mydelta.shape))
-        logging.debug("lastInput^t Shape {} mydelta shape {}".format(self.lastInput.T.shape, mydelta.shape))
+        # logging.debug("mygrad={}".format(mygrad))
+        # logging.debug("lastInput={}".format(self.lastInput))
+        # logging.debug("lastInputShape {} mydelta shape {}".format(self.lastInput.shape, mydelta.shape))
+        # logging.debug("lastInput^t Shape {} mydelta shape {}".format(self.lastInput.T.shape, mydelta.shape))
+        #logging.debug("biasWeight Shape {}, ones shape {}".format(self.biasWeight.shape, (np.ones((1, self.lastInput.shape[1])).shape)))
         weightChange = (self.lastInput.T).dot(mydelta)
+        biasChange = (np.ones((1,self.lastInput.shape[0]))).dot(errors)
+        # biasChange = mygrad
+        # logging.debug("old weights\n {}".format(self.weights))
 
-        logging.debug("old weights\n {}".format(self.weights))
+        if self.method == "normal":
+            self.weights += weightChange * (self.learningRate/self.runCount)
+            self.biasWeight += biasChange*self.biasFactor * 0.1 * (self.learningRate/self.runCount)
+            self.runCount += 0.001
+        elif self.method == "adagrad":
+            self.adagrad += weightChange**2
+            # self.adagrad = 0.999*self.adagrad + (0.1) * weightChange**2
+            self.biasadagrad += biasChange**2
+            self.weights += weightChange*self.learningRate / (np.sqrt(self.adagrad) + 1e-7)
+            self.biasWeight += biasChange*self.learningRate / (np.sqrt(self.biasadagrad) + 1e-7)
+        else:
+            raise "Unsuported"
+        # logging.debug("weight Change\n {}".format(weightChange))
+        # logging.debug("new weights\n {}".format(self.weights))
+        # # exit()
+        # #self.learningRate *= 0.999
 
-        self.adagrad += weightChange**2
-        logging.debug("adagrad {}".format(self.adagrad))
-        self.weights += weightChange*self.learningRate / (np.sqrt(self.adagrad) + 1e-7)
-        logging.debug("weight Change\n {}".format(weightChange))
-        logging.debug("new weights\n {}".format(self.weights))
-
-        self.learningRate *= 0.9999
-
-        if self.outfile is not None:
-            self.outfile.write("{}".format(self.weights.flat))
+        # if self.outfile is not None:
+        #     self.outfile.write("{}".format(self.weights.flat))
 
         meanError = np.mean(np.abs(mygrad))
 
         return mygrad
 
 
+def mnist_digits():
+    """ classify digits """
+    inputs, results =  mnist_loader.load_data_wrapper()
+    return (inputs, results)
+
+
+def evaluate_classifier(guess_array, correct_array):
+    guess = np.argmax(guess_array, axis=1)
+    correct = np.argmax(correct_array, axis=1)
+    num_correct = np.count_nonzero(guess == correct)
+    logging.info("Correct:{}/{} [{:.0f}%]".format(num_correct, len(guess), 100*num_correct/len(guess)))
+    for i in range(min(len(guess), 6)):
+        confidence = guess_array[i][guess[i]] - np.mean(guess_array[i])
+        logging.debug("guess value {}, mean {}, confidence {}".format(guess_array[i][guess[i]], np.mean(guess_array[i]), confidence))
+        logging.info("Output: {}, guess:{} correct:{}, confidence {:.0f}%".format(guess_array[i], guess[i], correct[i], 100*confidence))
+        # logging.info("Correct:{}, correct{}".format(correct_array[i], correct[i]))
+
+# [ 0.        ]
+#  [ 0.        ]
+#  [ 0.53125   ]
+#  [ 0.98828125]
+#  [ 0.98828125]
+#  [ 0.98828125]
+#  [ 0.828125  ]
+#  [ 0.52734375]
+#  [ 0.515625  ]
+#  [ 0.0625    ]
+
+
+
 def binary_xor():
     """ Classify xor with an extra bit which needs to be ignored"""
     # Array of input training cases
-    inputv = np.array([[0, 0, 1],
-                       [0, 1, 1],
-                       [1, 0, 1],
-                       [1, 1, 1],
-                       [0, 0, 0],
-                       [0, 1, 0],
-                       [1, 0, 0],
-                       [1, 1, 0]])
+    inputv = np.array([[0.0, 0.0],
+                       [0.0, 1.0],
+                       [1.0, 0.0],
+                       [1.0, 1.0]])
     # Expected result vectors used to train the network
     y = np.array([[0],
                   [1],
                   [1],
-                  [0],
-                  [0],
-                  [1],
-                  [1],
                   [0]])
+    print inputv.shape
+    print y.shape
+    exit()
     return (inputv, y)
 
 def square_classifier():
@@ -147,15 +186,17 @@ def square_classifier():
     return (inputv, y)
 
 
-def run_network(options):
+def run_network(options, outfile):
     """ DESCRIPTION """
     logging.debug("Called with {}".format(options))
 
     transfer_fun = transfer_functions[options.transferfunction]
 
     # Array of input training cases and their correct answers
-    inputv,truthv = square_classifier()
+    #inputv, truthv = square_classifier()
+    inputv, truthv = mnist_digits()
     # inputv,truthv = binary_xor()
+
 
     logging.info("inputv\n{}".format(inputv))
     logging.info("truthv\n{}".format(truthv))
@@ -171,20 +212,25 @@ def run_network(options):
     # logging.info("sigmoid({})={}".format(inputv, sigmoid(inputv)))
 
 
-    n1 = NeuralNetworkLayer(4, 4, activation=sigmoid, learningRate=0.8)
-    n2 = NeuralNetworkLayer(4, 8, activation=transfer_fun, learningRate=0.8)
-    n3 = NeuralNetworkLayer(8, 4, activation=transfer_fun, learningRate=0.8)
+    n1 = NeuralNetworkLayer(784, 16, activation=transfer_fun, learningRate=options.learningrate,
+                            method=options.method, nobias=True)
+    n2 = NeuralNetworkLayer(16, 16, activation=transfer_fun, learningRate=options.learningrate,
+                            method=options.method)
+    n3 = NeuralNetworkLayer(16, 10, activation=transfer_fun, learningRate=options.learningrate,
+                            method=options.method)
 
-    outfile = open(options.outfile,'w')
+    outfile = open(outfile, 'w')
     outfile.write("#gen,error")
 
-    trainingSetSize=len(truthv)
+    trainingSetSize = len(truthv)
 
-    for j in range(5000):
-        if (j % 100) == 0:
+    printEveryN = 5
+
+    for j in range(600):
+        if (j % printEveryN) == 0:
             indicies = np.arange(trainingSetSize)
         else:
-            indicies = np.random.choice(trainingSetSize, trainingSetSize-1 )
+            indicies = np.random.choice(trainingSetSize, trainingSetSize)
         x = inputv[indicies]
         y = truthv[indicies]
 
@@ -192,11 +238,14 @@ def run_network(options):
         o2 = n2.runForward(o1)
         o3 = n3.runForward(o2)
         error = y - o3
-        if (j % 100) == 0:
-            logging.info("output{}\n {}".format(j,o3))
-            logging.info("error\n {}".format(error))
-            logging.info("Error:" + str(np.mean(np.abs(error))))
-        outfile.write("{},{}\n".format(j,str(np.mean(np.abs(error)))))
+        if (j % printEveryN) == 0:
+            # logging.info("biases, n1 adagrad{} biasadagrad{}\n{}".format(n1.adagrad, n1.biasadagrad, n1.biasWeight))
+            # logging.info("biases, n2 adagrad{} biasadagrad{}\n{}".format(n2.adagrad, n2.biasadagrad, n2.biasWeight))
+            # logging.info("biases, n3 adagrad{} biasadagrad{}\n{}".format(n3.adagrad, n3.biasadagrad, n3.biasWeight))
+            # logging.info("output{}\n {}".format(j,o3))
+            evaluate_classifier(o3, y)
+            logging.info("Error_{}:{}".format(j,np.mean(np.abs(error))))
+        outfile.write("{},{}\n".format(j,str(np.mean(np.abs(error), dtype=np.float64))))
         b3 = n3.backProp(error)
         b2 = n2.backProp(b3)
         b1 = n1.backProp(b2)
@@ -212,7 +261,11 @@ if __name__ == "__main__":
                         help="randomseed")
     parser.add_argument("-t", "--transferfunction", type=str,default="tanh", choices=transfer_functions.keys(),
                         help="select a transfer function to use for the network")
-    parser.add_argument("-o", "--outfile", type=str,
+    parser.add_argument("-m", "--method", type=str, default="normal", choices=search_methods,
+                        help="method to search for minimum")
+    parser.add_argument("-l", "--learningrate", type=float, default=0.8,
+                        help="base learning rate")
+    parser.add_argument("-o", "--outstub", type=str,
                         help="path for output")
     parser.add_argument('--err', nargs='?', type=argparse.FileType('w'),
                         default=None)
@@ -236,5 +289,7 @@ if __name__ == "__main__":
     logging.info("Setting random seed to %s", args.random)
     np.random.seed(args.random)
 
-
-    run_network(args)
+    np.set_printoptions(precision=3)
+    np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
+    outfile = "{}_{}_{}_{}.out".format(args.outstub, args.transferfunction, args.learningrate, args.method)
+    run_network(args, outfile)
