@@ -5,6 +5,8 @@ import numpy as np
 import cPickle
 import gzip
 import mnist_loader
+from itertools import tee, izip
+
 
 def sigmoid(x):
     s = 1.0 / (1.0 + np.exp(-x))
@@ -53,6 +55,7 @@ class NeuralNetworkLayer(object):
         if outfile is not None:
             self.outfile = open(outfile, 'w')
 
+        #self.weights = np.random.normal(loc=0.0, scale=1/np.sqrt(inputSize), size=(inputSize, outputSize))
         self.weights = np.random.normal(loc=0.0, scale=0.5, size=(inputSize, outputSize))
         print self.weights
         self.biasFactor = 0.0 if nobias else 1.0
@@ -115,22 +118,82 @@ class NeuralNetworkLayer(object):
         return mygrad
 
 
+def pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    a, b = tee(iterable)
+    next(b, None)
+    return izip(a, b)
+
+
+class NeuralNetwork(object):
+    """ A single layer of a neural network"""
+
+    def __init__(self, input_size, output_size, hidden_sizes=[16,16], activation=tanh, learningRate=1.0, nobias=False, outfile=None, method="normal"):
+
+        # input_size = len(training_data[0])
+        # output_size = len(correct_results[0])
+
+        sizes = [input_size] + hidden_sizes + [output_size]
+        logging.debug(sizes)
+        print zip(sizes, sizes)
+        print pairwise(sizes)
+        for p in pairwise(hidden_sizes):
+            print p
+
+        input_layer = NeuralNetworkLayer(input_size, hidden_sizes[0], activation=activation, learningRate=learningRate,
+                                         method=method, nobias=True)
+        output_layer = NeuralNetworkLayer(hidden_sizes[-1], output_size, activation=activation, learningRate=learningRate,
+                                          method=method)
+        hidden_layers = [NeuralNetworkLayer(in_size, out_size, activation=activation, learningRate=learningRate,
+                                            method=method)
+                         for (in_size, out_size) in pairwise(hidden_sizes)]
+
+        self.layers = [input_layer] + hidden_layers + [output_layer]
+
+    def run_forward(self, input_data):
+        i = input_data
+        for layer in self.layers:
+            o = layer.runForward(i)
+            i = o
+        return o
+
+    def back_prop(self, error):
+        e = error
+        for layer in reversed(self.layers):
+            o = layer.backProp(e)
+            e = o
+
+
 def mnist_digits():
     """ classify digits """
     inputs, results =  mnist_loader.load_data_wrapper()
     return (inputs, results)
 
 
-def evaluate_classifier(guess_array, correct_array):
+def softmax(v, theta=2.0):
+    # theta = 5.0
+    y = np.abs(v)*theta
+    m = max(y)
+    v_exp = np.exp((y-m))
+    return v_exp / np.sum(v_exp)
+
+
+def evaluate_classifier(guess_array, correct_array, print_sample=False):
     guess = np.argmax(guess_array, axis=1)
     correct = np.argmax(correct_array, axis=1)
     num_correct = np.count_nonzero(guess == correct)
-    logging.info("Correct:{}/{} [{:.0f}%]".format(num_correct, len(guess), 100*num_correct/len(guess)))
-    for i in range(min(len(guess), 6)):
-        confidence = guess_array[i][guess[i]] - np.mean(guess_array[i])
-        logging.debug("guess value {}, mean {}, confidence {}".format(guess_array[i][guess[i]], np.mean(guess_array[i]), confidence))
-        logging.info("Output: {}, guess:{} correct:{}, confidence {:.0f}%".format(guess_array[i], guess[i], correct[i], 100*confidence))
-        # logging.info("Correct:{}, correct{}".format(correct_array[i], correct[i]))
+    percent_correct = 100*num_correct/len(guess)
+    if print_sample:
+        logging.info("Correct:{}/{} [{:.0f}%]".format(num_correct, len(guess), 100*num_correct/len(guess)))
+        for i in range(min(len(guess), 6)):
+            confidence = np.max(softmax(guess_array[i]))
+            # g= np.clip(guess_array[i], 0, 1)
+            # s = np.sum(g)
+            # confidence = np.max(g/s)
+            # logging.debug("softmax {}, maxsoftmax {:.2f}, max normed {:.2f}".format(softmax(g), np.max(softmax(g)), confidence))
+            logging.info("Output: {}, guess:{} correct:{}, confidence {:.0f}%".format(guess_array[i], guess[i], correct[i], 100*confidence))
+            # logging.info("Correct:{}, correct{}".format(correct_array[i], correct[i]))
+    return percent_correct
 
 # [ 0.        ]
 #  [ 0.        ]
@@ -193,10 +256,29 @@ def run_network(options, outfile):
     transfer_fun = transfer_functions[options.transferfunction]
 
     # Array of input training cases and their correct answers
-    #inputv, truthv = square_classifier()
+    # inputv, truthv = square_classifier()
     inputv, truthv = mnist_digits()
     # inputv,truthv = binary_xor()
 
+    nn = NeuralNetwork(inputv.shape[1], truthv.shape[1], hidden_sizes=[30], activation=transfer_fun, learningRate=options.learningrate,
+                       method=options.method, nobias=True)
+
+    printEveryN = 5
+    trainingSetSize = len(truthv)
+    for j in range(20000):
+        if (j % printEveryN) == 0:
+            indicies = np.arange(trainingSetSize)
+        else:
+            indicies = np.random.choice(trainingSetSize, trainingSetSize)
+        x = inputv[indicies]
+        y = truthv[indicies]
+        output = nn.run_forward(x)
+        error = y - output
+        if (j % printEveryN) == 0:
+            evaluate_classifier(output, y, print_sample=True)
+            logging.info("Error_{}:{}".format(j, np.mean(np.abs(error))))
+        nn.back_prop(error)
+    exit(-1)
 
     logging.info("inputv\n{}".format(inputv))
     logging.info("truthv\n{}".format(truthv))
@@ -226,7 +308,8 @@ def run_network(options, outfile):
 
     printEveryN = 5
 
-    for j in range(600):
+
+    for j in range(60000):
         if (j % printEveryN) == 0:
             indicies = np.arange(trainingSetSize)
         else:
@@ -243,9 +326,11 @@ def run_network(options, outfile):
             # logging.info("biases, n2 adagrad{} biasadagrad{}\n{}".format(n2.adagrad, n2.biasadagrad, n2.biasWeight))
             # logging.info("biases, n3 adagrad{} biasadagrad{}\n{}".format(n3.adagrad, n3.biasadagrad, n3.biasWeight))
             # logging.info("output{}\n {}".format(j,o3))
-            evaluate_classifier(o3, y)
-            logging.info("Error_{}:{}".format(j,np.mean(np.abs(error))))
-        outfile.write("{},{}\n".format(j,str(np.mean(np.abs(error), dtype=np.float64))))
+            evaluate_classifier(o3, y, print_sample=True)
+            logging.info("Error_{}:{}".format(j, np.mean(np.abs(error))))
+            outfile.flush()
+        correct = evaluate_classifier(o3, y)
+        outfile.write("{},{},{}\n".format(j, str(np.mean(np.abs(error), dtype=np.float64)), correct))
         b3 = n3.backProp(error)
         b2 = n2.backProp(b3)
         b1 = n1.backProp(b2)
