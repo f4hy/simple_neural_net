@@ -195,17 +195,6 @@ def evaluate_classifier(guess_array, correct_array, print_sample=False):
             # logging.info("Correct:{}, correct{}".format(correct_array[i], correct[i]))
     return percent_correct
 
-# [ 0.        ]
-#  [ 0.        ]
-#  [ 0.53125   ]
-#  [ 0.98828125]
-#  [ 0.98828125]
-#  [ 0.98828125]
-#  [ 0.828125  ]
-#  [ 0.52734375]
-#  [ 0.515625  ]
-#  [ 0.0625    ]
-
 
 
 def binary_xor():
@@ -280,62 +269,62 @@ def run_network(options, outfile):
         nn.back_prop(error)
     exit(-1)
 
-    logging.info("inputv\n{}".format(inputv))
-    logging.info("truthv\n{}".format(truthv))
-    indicies = np.random.choice(len(truthv), len(truthv)-1 )
-    logging.info("indixies={}".format(indicies))
-    logging.info("inputv\n{}".format(inputv[indicies]))
-    logging.info("truthv\n{}".format(truthv[indicies]))
-    #exit()
+    # logging.info("inputv\n{}".format(inputv))
+    # logging.info("truthv\n{}".format(truthv))
+    # indicies = np.random.choice(len(truthv), len(truthv)-1 )
+    # logging.info("indixies={}".format(indicies))
+    # logging.info("inputv\n{}".format(inputv[indicies]))
+    # logging.info("truthv\n{}".format(truthv[indicies]))
+    # #exit()
 
-    logging.info("inputv {}, inputv.T {}".format(inputv, inputv.T))
-    logging.info("inputv.shape {}, inputv.T.shape {}".format(inputv.shape, inputv.T.shape))
-    # logging.info("reLU({})={}".format(inputv, reLU(inputv)))
-    # logging.info("sigmoid({})={}".format(inputv, sigmoid(inputv)))
-
-
-    n1 = NeuralNetworkLayer(784, 16, activation=transfer_fun, learningRate=options.learningrate,
-                            method=options.method, nobias=True)
-    n2 = NeuralNetworkLayer(16, 16, activation=transfer_fun, learningRate=options.learningrate,
-                            method=options.method)
-    n3 = NeuralNetworkLayer(16, 10, activation=transfer_fun, learningRate=options.learningrate,
-                            method=options.method)
-
-    outfile = open(outfile, 'w')
-    outfile.write("#gen,error")
-
-    trainingSetSize = len(truthv)
-
-    printEveryN = 5
+    # logging.info("inputv {}, inputv.T {}".format(inputv, inputv.T))
+    # logging.info("inputv.shape {}, inputv.T.shape {}".format(inputv.shape, inputv.T.shape))
+    # # logging.info("reLU({})={}".format(inputv, reLU(inputv)))
+    # # logging.info("sigmoid({})={}".format(inputv, sigmoid(inputv)))
 
 
-    for j in range(60000):
-        if (j % printEveryN) == 0:
-            indicies = np.arange(trainingSetSize)
-        else:
-            indicies = np.random.choice(trainingSetSize, trainingSetSize)
-        x = inputv[indicies]
-        y = truthv[indicies]
+    # n1 = NeuralNetworkLayer(784, 16, activation=transfer_fun, learningRate=options.learningrate,
+    #                         method=options.method, nobias=True)
+    # n2 = NeuralNetworkLayer(16, 16, activation=transfer_fun, learningRate=options.learningrate,
+    #                         method=options.method)
+    # n3 = NeuralNetworkLayer(16, 10, activation=transfer_fun, learningRate=options.learningrate,
+    #                         method=options.method)
 
-        o1 = n1.runForward(x)
-        o2 = n2.runForward(o1)
-        o3 = n3.runForward(o2)
-        error = y - o3
-        if (j % printEveryN) == 0:
-            # logging.info("biases, n1 adagrad{} biasadagrad{}\n{}".format(n1.adagrad, n1.biasadagrad, n1.biasWeight))
-            # logging.info("biases, n2 adagrad{} biasadagrad{}\n{}".format(n2.adagrad, n2.biasadagrad, n2.biasWeight))
-            # logging.info("biases, n3 adagrad{} biasadagrad{}\n{}".format(n3.adagrad, n3.biasadagrad, n3.biasWeight))
-            # logging.info("output{}\n {}".format(j,o3))
-            evaluate_classifier(o3, y, print_sample=True)
-            logging.info("Error_{}:{}".format(j, np.mean(np.abs(error))))
-            outfile.flush()
-        correct = evaluate_classifier(o3, y)
-        outfile.write("{},{},{}\n".format(j, str(np.mean(np.abs(error), dtype=np.float64)), correct))
-        b3 = n3.backProp(error)
-        b2 = n2.backProp(b3)
-        b1 = n1.backProp(b2)
+    # outfile = open(outfile, 'w')
+    # outfile.write("#gen,error")
 
-    outfile.close()
+    # trainingSetSize = len(truthv)
+
+    # printEveryN = 5
+
+
+    # for j in range(60000):
+    #     if (j % printEveryN) == 0:
+    #         indicies = np.arange(trainingSetSize)
+    #     else:
+    #         indicies = np.random.choice(trainingSetSize, trainingSetSize)
+    #     x = inputv[indicies]
+    #     y = truthv[indicies]
+
+    #     o1 = n1.runForward(x)
+    #     o2 = n2.runForward(o1)
+    #     o3 = n3.runForward(o2)
+    #     error = y - o3
+    #     if (j % printEveryN) == 0:
+    #         # logging.info("biases, n1 adagrad{} biasadagrad{}\n{}".format(n1.adagrad, n1.biasadagrad, n1.biasWeight))
+    #         # logging.info("biases, n2 adagrad{} biasadagrad{}\n{}".format(n2.adagrad, n2.biasadagrad, n2.biasWeight))
+    #         # logging.info("biases, n3 adagrad{} biasadagrad{}\n{}".format(n3.adagrad, n3.biasadagrad, n3.biasWeight))
+    #         # logging.info("output{}\n {}".format(j,o3))
+    #         evaluate_classifier(o3, y, print_sample=True)
+    #         logging.info("Error_{}:{}".format(j, np.mean(np.abs(error))))
+    #         outfile.flush()
+    #     correct = evaluate_classifier(o3, y)
+    #     outfile.write("{},{},{}\n".format(j, str(np.mean(np.abs(error), dtype=np.float64)), correct))
+    #     b3 = n3.backProp(error)
+    #     b2 = n2.backProp(b3)
+    #     b1 = n1.backProp(b2)
+
+    # outfile.close()
 
 if __name__ == "__main__":
 
