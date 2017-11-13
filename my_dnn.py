@@ -31,11 +31,9 @@ def fahy(x):
 def reLU(x):
     r = np.piecewise(x, [x < 0., x >= 0.], [0., lambda x: x])
     grad = np.piecewise(x, [x < 0., x >= 0.], [0., lambda x: 1.])
-    return (r,grad)
+    return (r, grad)
 
 
-transfer_functions = {"fahy": fahy, "reLU": reLU, "tanh": tanh, "sigmoid": sigmoid}
-search_methods = ["normal", "adagrad"]
 
 
 class NeuralNetworkLayer(object):
@@ -55,26 +53,25 @@ class NeuralNetworkLayer(object):
         if outfile is not None:
             self.outfile = open(outfile, 'w')
 
-        #self.weights = np.random.normal(loc=0.0, scale=1/np.sqrt(inputSize), size=(inputSize, outputSize))
-        self.weights = np.random.normal(loc=0.0, scale=0.5, size=(inputSize, outputSize))
-        print self.weights
+        # self.weights = np.random.normal(loc=0.0, scale=1/np.sqrt(inputSize), size=(inputSize, outputSize))
+        self.weights = np.random.uniform(low=-1.0, high=1.0, size=(inputSize, outputSize))
         self.biasFactor = 0.0 if nobias else 1.0
         self.biasWeight = np.random.normal(loc=1.0, scale=0.01, size=(1, outputSize))*self.biasFactor
-        #self.biasWeight = 0.0
-        # self.weights = 2.5*np.random.random(size=(inputSize, outputSize))
         self.gradFromLastInput = None
         self.lastInput = None
         self.prevWeightDelta = []
         self.lastMeanError = 0.0
 
-    def runForward(self, inputs):
+    def runForward(self, inputs, training=True):
         # logging.debug("{}weights =\n {}".format(self.weights.shape, self.weights))
         #logging.debug("{}biasweights =\n {}".format(self.biasWeight.shape, self.biasWeight))
         dot = np.dot(inputs, self.weights) + self.biasWeight * self.biasFactor
         # logging.debug("dot={}".format(dot))
-        result, self.gradFromLastInput = self.activation(dot)
+        result, grad = self.activation(dot)
         # logging.debug("result={}".format(result))
-        self.lastInput = inputs
+        if training:
+            self.lastInput = inputs
+            self.gradFromLastInput = grad
         # logging.debug("grad={}".format(self.gradFromLastInput))
         return result
 
@@ -94,8 +91,11 @@ class NeuralNetworkLayer(object):
         # logging.debug("old weights\n {}".format(self.weights))
 
         if self.method == "normal":
+            self.weights += weightChange * (self.learningRate)
+            self.biasWeight += biasChange*self.biasFactor * (self.learningRate)
+        if self.method == "decay":
             self.weights += weightChange * (self.learningRate/self.runCount)
-            self.biasWeight += biasChange*self.biasFactor * 0.1 * (self.learningRate/self.runCount)
+            self.biasWeight += biasChange*self.biasFactor * (self.learningRate/self.runCount)
             self.runCount += 0.001
         elif self.method == "adagrad":
             self.adagrad += weightChange**2
@@ -128,17 +128,11 @@ def pairwise(iterable):
 class NeuralNetwork(object):
     """ A single layer of a neural network"""
 
-    def __init__(self, input_size, output_size, hidden_sizes=[16,16], activation=tanh, learningRate=1.0, nobias=False, outfile=None, method="normal"):
-
-        # input_size = len(training_data[0])
-        # output_size = len(correct_results[0])
-
+    def __init__(self, input_size, output_size, hidden_sizes=[30], activation=tanh, learningRate=1.0, nobias=False, outfile=None, method="normal"):
+        logging.info("Creating a network with intput size {}, hidden sizes {}, and output size {}".format(input_size, hidden_sizes, output_size))
         sizes = [input_size] + hidden_sizes + [output_size]
         logging.debug(sizes)
-        print zip(sizes, sizes)
-        print pairwise(sizes)
-        for p in pairwise(hidden_sizes):
-            print p
+        logging.info("connections have input,output sizes {}".format(list(pairwise(sizes))))
 
         input_layer = NeuralNetworkLayer(input_size, hidden_sizes[0], activation=activation, learningRate=learningRate,
                                          method=method, nobias=True)
@@ -150,10 +144,10 @@ class NeuralNetwork(object):
 
         self.layers = [input_layer] + hidden_layers + [output_layer]
 
-    def run_forward(self, input_data):
+    def run_forward(self, input_data, training=True):
         i = input_data
         for layer in self.layers:
-            o = layer.runForward(i)
+            o = layer.runForward(i, training=training)
             i = o
         return o
 
@@ -166,16 +160,23 @@ class NeuralNetwork(object):
 
 def mnist_digits():
     """ classify digits """
-    inputs, results =  mnist_loader.load_data_wrapper()
+    inputs, results = mnist_loader.load_data_wrapper()
     return (inputs, results)
 
 
 def softmax(v, theta=2.0):
-    # theta = 5.0
-    y = np.abs(v)*theta
-    m = max(y)
+    y = v*theta
+    m = np.max(y)
     v_exp = np.exp((y-m))
     return v_exp / np.sum(v_exp)
+
+
+def confidence(v):
+    s = np.sum(v)
+    if 1.2 > s > 0.8:
+        return np.max(v)/np.sum(v)
+    else:
+        return max(softmax(v))
 
 
 def evaluate_classifier(guess_array, correct_array, print_sample=False):
@@ -186,12 +187,12 @@ def evaluate_classifier(guess_array, correct_array, print_sample=False):
     if print_sample:
         logging.info("Correct:{}/{} [{:.0f}%]".format(num_correct, len(guess), 100*num_correct/len(guess)))
         for i in range(min(len(guess), 6)):
-            confidence = np.max(softmax(guess_array[i]))
+            conf = confidence(guess_array[i])
             # g= np.clip(guess_array[i], 0, 1)
             # s = np.sum(g)
             # confidence = np.max(g/s)
             # logging.debug("softmax {}, maxsoftmax {:.2f}, max normed {:.2f}".format(softmax(g), np.max(softmax(g)), confidence))
-            logging.info("Output: {}, guess:{} correct:{}, confidence {:.0f}%".format(guess_array[i], guess[i], correct[i], 100*confidence))
+            logging.info("Output: {}, guess:{} correct:{}, confidence {:.0f}%".format(guess_array[i], guess[i], correct[i], 100*conf))
             # logging.info("Correct:{}, correct{}".format(correct_array[i], correct[i]))
     return percent_correct
 
@@ -209,9 +210,6 @@ def binary_xor():
                   [1],
                   [1],
                   [0]])
-    print inputv.shape
-    print y.shape
-    exit()
     return (inputv, y)
 
 def square_classifier():
@@ -235,7 +233,14 @@ def square_classifier():
                   [0, 0, 1, 0],
                   [0, 0, 0, 1],
                   [0, 0, 0, 1]])
-    return (inputv, y)
+    n = len(y)
+    indicies = np.random.choice(n, 10000)
+    return (inputv[indicies], y[indicies])
+
+
+data_choices = {"digits": mnist_digits, "square": square_classifier, "xor": binary_xor}
+transfer_functions = {"fahy": fahy, "reLU": reLU, "tanh": tanh, "sigmoid": sigmoid}
+search_methods = ["normal", "decay", "adagrad"]
 
 
 def run_network(options, outfile):
@@ -245,106 +250,79 @@ def run_network(options, outfile):
     transfer_fun = transfer_functions[options.transferfunction]
 
     # Array of input training cases and their correct answers
-    # inputv, truthv = square_classifier()
-    inputv, truthv = mnist_digits()
-    # inputv,truthv = binary_xor()
-
-    nn = NeuralNetwork(inputv.shape[1], truthv.shape[1], hidden_sizes=[30], activation=transfer_fun, learningRate=options.learningrate,
-                       method=options.method, nobias=True)
-
-    printEveryN = 5
-    trainingSetSize = len(truthv)
-    for j in range(20000):
-        if (j % printEveryN) == 0:
-            indicies = np.arange(trainingSetSize)
-        else:
-            indicies = np.random.choice(trainingSetSize, trainingSetSize)
-        x = inputv[indicies]
-        y = truthv[indicies]
-        output = nn.run_forward(x)
-        error = y - output
-        if (j % printEveryN) == 0:
-            evaluate_classifier(output, y, print_sample=True)
-            logging.info("Error_{}:{}".format(j, np.mean(np.abs(error))))
-        nn.back_prop(error)
-    exit(-1)
-
-    # logging.info("inputv\n{}".format(inputv))
-    # logging.info("truthv\n{}".format(truthv))
-    # indicies = np.random.choice(len(truthv), len(truthv)-1 )
-    # logging.info("indixies={}".format(indicies))
-    # logging.info("inputv\n{}".format(inputv[indicies]))
-    # logging.info("truthv\n{}".format(truthv[indicies]))
-    # #exit()
-
-    # logging.info("inputv {}, inputv.T {}".format(inputv, inputv.T))
-    # logging.info("inputv.shape {}, inputv.T.shape {}".format(inputv.shape, inputv.T.shape))
-    # # logging.info("reLU({})={}".format(inputv, reLU(inputv)))
-    # # logging.info("sigmoid({})={}".format(inputv, sigmoid(inputv)))
+    data_fun = data_choices[options.trainingdataset]
+    training_data, training_truth = data_fun()
 
 
-    # n1 = NeuralNetworkLayer(784, 16, activation=transfer_fun, learningRate=options.learningrate,
-    #                         method=options.method, nobias=True)
-    # n2 = NeuralNetworkLayer(16, 16, activation=transfer_fun, learningRate=options.learningrate,
-    #                         method=options.method)
-    # n3 = NeuralNetworkLayer(16, 10, activation=transfer_fun, learningRate=options.learningrate,
-    #                         method=options.method)
 
-    # outfile = open(outfile, 'w')
-    # outfile.write("#gen,error")
+    nn = NeuralNetwork(training_data.shape[1], training_truth.shape[1], hidden_sizes=options.hiddenlayers, activation=transfer_fun, learningRate=options.learningrate,
+                       method=options.method)
 
-    # trainingSetSize = len(truthv)
+    trainingSetSize = len(training_truth)
+    outfile = open(outfile, 'w')
+    outfile.write("#evals,cost,percent_correct\n")
 
-    # printEveryN = 5
+    def evaluate(N):
+        eval_x = training_data
+        eval_y = training_truth
+        eval_output = nn.run_forward(eval_x, training=False)
+        eval_error = eval_y - eval_output
+        cost = np.sum(0.5 * (eval_error)**2)
+        percent_correct = evaluate_classifier(eval_output, eval_y, print_sample=True)
+        logging.info("Error_{}:{}, cost {}".format(N, np.mean(np.abs(eval_error)), cost))
+        outfile.write("{},{},{}\n".format(N, str(np.mean(cost, dtype=np.float64)), percent_correct))
+        outfile.flush()
 
+    # evalEveryN = 1
+    evalEveryNBatch = 10000
+    batchsize = options.batchsize
+    evaluation_count = 0
+    for epoch in range(30):
+        evaluate(evaluation_count)
+        for batchindex in range(0, trainingSetSize, batchsize):
+            evaluation_count += batchsize
+            inputv = training_data[batchindex:batchindex+batchsize]
+            truthv = training_truth[batchindex:batchindex+batchsize]
+            # batch_indicies = np.random.choice(trainingSetSize, trainingSetSize)
+            # batch_indicies = epoch % trainingSetSize
+            batch_indicies = np.random.permutation(len(truthv))
+            # print np.random.choice(trainingSetSize, trainingSetSize)
+            # batch_indicies = np.arange(trainingSetSize)
+            batch_x = inputv[batch_indicies]
+            batch_y = truthv[batch_indicies]
+            batch_output = nn.run_forward(batch_x)
+            if (batchindex % evalEveryNBatch) == 0 and batchindex > 0:
+                evaluate(evaluation_count)
+                logging.info("Evaluating epoch {} batch {}".format(epoch, batchindex))
+            batch_error = batch_y - batch_output
+            nn.back_prop(batch_error)
+    outfile.close()
 
-    # for j in range(60000):
-    #     if (j % printEveryN) == 0:
-    #         indicies = np.arange(trainingSetSize)
-    #     else:
-    #         indicies = np.random.choice(trainingSetSize, trainingSetSize)
-    #     x = inputv[indicies]
-    #     y = truthv[indicies]
-
-    #     o1 = n1.runForward(x)
-    #     o2 = n2.runForward(o1)
-    #     o3 = n3.runForward(o2)
-    #     error = y - o3
-    #     if (j % printEveryN) == 0:
-    #         # logging.info("biases, n1 adagrad{} biasadagrad{}\n{}".format(n1.adagrad, n1.biasadagrad, n1.biasWeight))
-    #         # logging.info("biases, n2 adagrad{} biasadagrad{}\n{}".format(n2.adagrad, n2.biasadagrad, n2.biasWeight))
-    #         # logging.info("biases, n3 adagrad{} biasadagrad{}\n{}".format(n3.adagrad, n3.biasadagrad, n3.biasWeight))
-    #         # logging.info("output{}\n {}".format(j,o3))
-    #         evaluate_classifier(o3, y, print_sample=True)
-    #         logging.info("Error_{}:{}".format(j, np.mean(np.abs(error))))
-    #         outfile.flush()
-    #     correct = evaluate_classifier(o3, y)
-    #     outfile.write("{},{},{}\n".format(j, str(np.mean(np.abs(error), dtype=np.float64)), correct))
-    #     b3 = n3.backProp(error)
-    #     b2 = n2.backProp(b3)
-    #     b1 = n1.backProp(b2)
-
-    # outfile.close()
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Simple Neural Network Example")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="increase output verbosity")
-    parser.add_argument("-r", "--random", type=int,default=1,
+    parser.add_argument("-r", "--random", type=int, default=1,
                         help="randomseed")
-    parser.add_argument("-t", "--transferfunction", type=str,default="tanh", choices=transfer_functions.keys(),
+    parser.add_argument("-b", "--batchsize", type=int, default=10,
+                        help="randomseed")
+    parser.add_argument("-t", "--transferfunction", type=str, default="tanh", choices=transfer_functions.keys(),
                         help="select a transfer function to use for the network")
     parser.add_argument("-m", "--method", type=str, default="normal", choices=search_methods,
                         help="method to search for minimum")
+    parser.add_argument("-d", "--trainingdataset", type=str, default="digits", choices=data_choices,
+                        help="select which training data set to learn")
     parser.add_argument("-l", "--learningrate", type=float, default=0.8,
                         help="base learning rate")
+    parser.add_argument("-hl", "--hiddenlayers", type=int, nargs='+', required=True,
+                        help="Specify hidden layer sizes (e.g. 16 16 8 )")
     parser.add_argument("-o", "--outstub", type=str,
                         help="path for output")
     parser.add_argument('--err', nargs='?', type=argparse.FileType('w'),
                         default=None)
     args = parser.parse_args()
-
 
     if args.verbose:
         logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
@@ -365,5 +343,5 @@ if __name__ == "__main__":
 
     np.set_printoptions(precision=3)
     np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
-    outfile = "{}_{}_{}_{}.out".format(args.outstub, args.transferfunction, args.learningrate, args.method)
+    outfile = "{}_{}_hl{}_bs{}_{}_{}_{}.out".format(args.outstub, args.trainingdataset, "-".join(map(str,args.hiddenlayers)), args.batchsize, args.transferfunction, args.learningrate, args.method)
     run_network(args, outfile)
